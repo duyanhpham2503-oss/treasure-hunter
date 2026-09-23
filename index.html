@@ -263,7 +263,7 @@
                 <p><strong>2. Bản đồ 7x7:</strong> Gồm 49 ô. Trong đó có 30 ô chứa câu hỏi trắc nghiệm và 19 "Ô May Mắn" (đào miễn phí không cần trả lời).</p>
                 <p><strong>3. Giấu kho báu:</strong> Các nhóm lần lượt bí mật chọn 5 vị trí bất kỳ để chôn kho báu. <em>(Được phép chôn trùng vị trí với nhóm khác để tạo thành Combo Bùng Nổ!)</em></p>
                 <p><strong>4. Đào kho báu:</strong> Các nhóm lần lượt chọn ô chưa đào. Nếu bốc trúng ô câu hỏi, phải trả lời đúng mới được lật đất. Trả lời sai sẽ bị mất lượt.</p>
-                <p><strong>5. Đặc quyền:</strong> Nếu đào trúng hòm kho báu của nhóm khác, nhóm của bạn sẽ được <b class="text-green-600">thưởng thêm 1 lượt đào liên tiếp</b>!</p>
+                <p><strong>5. Đặc quyền:</strong> Nếu đào trúng hòm kho báu của nhóm khác, nhóm của bạn sẽ được <b class="text-green-600">thưởng thêm 1 lượt đào liên tiếp</b> <i>(Chỉ áp dụng tối đa 1 lần thưởng trong mỗi lượt chơi - không cộng dồn quá 2 lần đào liên tiếp)</i>!</p>
                 <p><strong>6. Combo Bùng Nổ:</strong> Nếu một ô chứa kho báu của nhiều nhóm (trùng lặp), đội nào lật trúng sẽ phá hủy hòm của <strong>TẤT CẢ</strong> các nhóm đó cùng lúc!</p>
                 <p><strong>7. Thẻ Đặc Biệt:</strong> Có 3 thẻ được ẩn ngẫu nhiên dưới các lớp đất:
                     <br>- 🎁 <b>Nổ hũ:</b> Nhận 1 hòm mới, chọn ô trống để giấu. <i>Đặc biệt: Nếu đội "Bóng ma" nhặt được sẽ lập tức được HỒI SINH!</i>
@@ -345,6 +345,7 @@
         let selectedCellToDig = null;
         let mayXucMode = null; // 'CROSS', 'ROW', 'COL'
         let isRevengeMode = false; // Trạng thái chế độ Trả thù
+        let hasUsedExtraTurn = false; // Theo dõi việc đã nhận thưởng lượt hay chưa
 
         // --- 2. QUESTION BANK ---
         // Bộ 30 câu hỏi chuẩn từ tài liệu [TTHCM][NHÓM 5][BẢN NỘI DUNG CHÍNH]
@@ -699,7 +700,7 @@
                         mainActionBtn.disabled = false;
                         mainActionBtn.onclick = confirmSetupTurn;
                     } else {
-                        mainActionBtn.innerText = "Vui lòng chọn 3 ô";
+                        mainActionBtn.innerText = "Vui lòng chọn 5 ô";
                         mainActionBtn.classList.add('opacity-50', 'cursor-not-allowed');
                         mainActionBtn.disabled = true;
                     }
@@ -799,6 +800,7 @@
         function startGame() {
             gameState = 'PLAYING';
             currentPlayTeamIndex = 0;
+            hasUsedExtraTurn = false; // Đặt lại trạng thái thưởng khi bắt đầu
             // Đảm bảo nhóm đầu tiên hợp lệ để chơi
             if (!teams[currentPlayTeamIndex].alive && !isRevengeMode) nextTurn(); 
             else updateUIState();
@@ -956,11 +958,26 @@
 
             let hitOtherTeam = false;
 
+            if (cell.owners.length > 0) {
+                cell.owners.forEach((ownerIndex) => {
+                    if (teams[ownerIndex].id !== currTeam.id) {
+                        hitOtherTeam = true;
+                    }
+                });
+            }
+
+            // Kiểm tra và cấp quyền thưởng lượt
+            let grantExtraTurn = false;
+            if (hitOtherTeam && !hasUsedExtraTurn) {
+                grantExtraTurn = true;
+                hasUsedExtraTurn = true; // Đánh dấu đã dùng quyền thưởng
+            }
+
             let afterDigCallback = () => {
                 if (cell.specialCard) {
-                    triggerSpecialCard(cell.specialCard, hitOtherTeam);
+                    triggerSpecialCard(cell.specialCard, grantExtraTurn);
                 } else {
-                    checkWinCondition(hitOtherTeam);
+                    checkWinCondition(grantExtraTurn);
                 }
             };
 
@@ -1036,8 +1053,10 @@
                         messageHtml += `<span class="text-white text-xl font-black uppercase drop-shadow-md">LOẠI: ${eliminatedTeams.map(t => t.name).join(', ')}</span>`;
                     }
 
-                    if (hitOtherTeam) {
-                        messageHtml += '<br><br><span class="text-green-300 text-lg md:text-xl font-black uppercase drop-shadow-md animate-pulse">🎁 THƯỞNG: ĐƯỢC ĐÀO TIẾP!</span>';
+                    if (grantExtraTurn) {
+                        messageHtml += '<br><br><span class="text-green-300 text-lg md:text-xl font-black uppercase drop-shadow-md animate-pulse">🎁 THƯỞNG: ĐƯỢC ĐÀO TIẾP!</span><br><span class="text-sm text-gray-200">(Tối đa 1 lần thưởng/lượt)</span>';
+                    } else if (hitOtherTeam) {
+                        messageHtml += '<br><br><span class="text-yellow-300 text-sm font-bold drop-shadow-md">⚠️ Đã hết quyền thưởng thêm lượt liên tiếp.</span>';
                     }
 
                     showAlert(
@@ -1180,6 +1199,13 @@
 
             renderTeams(); // Cập nhật lại số rương sau khi máy xúc chạy
 
+            // Kiểm tra quyền thưởng lượt
+            let grantExtraTurn = false;
+            if (hitOtherTeam && !hasUsedExtraTurn) {
+                grantExtraTurn = true;
+                hasUsedExtraTurn = true; // Đánh dấu đã dùng quyền thưởng
+            }
+
             setTimeout(() => {
                 if (newlyDugCells.length === 0) {
                     showAlert('MÁY XÚC HOẠT ĐỘNG', 'Tất cả các ô trong vùng chọn đều đã bị đào trước đó!', 'bg-gray-600', 'fa-tractor', () => checkWinCondition(false));
@@ -1193,10 +1219,12 @@
                         messageHtml += '<hr class="my-3 border-white/30">';
                         messageHtml += `<span class="text-white text-xl font-black uppercase drop-shadow-md">LOẠI: ${eliminatedTeams.map(t => t.name).join(', ')}</span>`;
                     }
-                    if (hitOtherTeam) {
-                        messageHtml += '<br><br><span class="text-green-300 text-lg md:text-xl font-black uppercase drop-shadow-md animate-pulse">🎁 THƯỞNG: ĐƯỢC ĐÀO TIẾP!</span>';
+                    if (grantExtraTurn) {
+                        messageHtml += '<br><br><span class="text-green-300 text-lg md:text-xl font-black uppercase drop-shadow-md animate-pulse">🎁 THƯỞNG: ĐƯỢC ĐÀO TIẾP!</span><br><span class="text-sm text-white/80">(Tối đa 1 lần thưởng/lượt)</span>';
+                    } else if (hitOtherTeam) {
+                        messageHtml += '<br><br><span class="text-yellow-300 text-sm font-bold drop-shadow-md">⚠️ Đã hết quyền thưởng thêm lượt liên tiếp.</span>';
                     }
-                    showAlert(alertTitle, messageHtml, 'bg-red-600', 'fa-tractor', () => checkWinCondition(hitOtherTeam));
+                    showAlert(alertTitle, messageHtml, 'bg-red-600', 'fa-tractor', () => checkWinCondition(grantExtraTurn));
                 } else {
                     showAlert('TRỐNG RỖNG! 🚜', 'Máy xúc đã cày nát đất nhưng không tìm thấy kho báu nào!', 'bg-gray-600', 'fa-tractor', () => checkWinCondition(false));
                 }
@@ -1225,6 +1253,8 @@
 
         function nextTurn() {
             if (gameState === 'GAMEOVER') return;
+
+            hasUsedExtraTurn = false; // Đặt lại trạng thái thưởng lượt khi chuyển sang đội khác
 
             do {
                 currentPlayTeamIndex = (currentPlayTeamIndex + 1) % teams.length;
