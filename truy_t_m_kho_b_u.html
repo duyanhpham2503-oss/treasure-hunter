@@ -1,0 +1,1354 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Truy Tìm Kho Báu - Trò Chơi Trắc Nghiệm</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Rowdies:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #87CEEB; /* Sky blue background */
+            background-image: radial-gradient(#ffffff33 1px, transparent 1px);
+            background-size: 20px 20px;
+            overflow: hidden; /* Khóa hoàn toàn thanh cuộn */
+        }
+        h1, h2, h3, .brand-font {
+            font-family: 'Rowdies', cursive;
+        }
+        
+        .map-grid {
+            display: grid;
+            /* Cột và Hàng dùng tỷ lệ fr để tự động thu phóng (Header bé hơn ô đất một chút) */
+            grid-template-columns: 0.8fr repeat(7, 2fr);
+            grid-template-rows: 0.8fr repeat(7, 2fr);
+            gap: 4px;
+            padding: 8px;
+            background-color: #fce7b1; /* Sand map color */
+            border: 8px solid #8b5a2b; /* Wooden border */
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            /* Bóp vừa khít không gian cho phép và giữ dáng hình vuông */
+            aspect-ratio: 1; 
+            max-width: 100%;
+            max-height: 100%;
+            /* Khoá an toàn: Bản đồ không bao giờ được cao hơn màn hình (trừ đi thanh tiêu đề) */
+            width: min(100%, calc(100vh - 120px));
+            height: auto;
+            margin: 0 auto;
+        }
+
+        @media (min-width: 768px) {
+            .map-grid {
+                gap: 6px;
+                padding: 12px;
+            }
+        }
+
+        .cell {
+            /* Bỏ aspect-ratio: 1 ở đây để tránh việc ô đất đẩy bản đồ tràn lề dưới */
+            width: 100%;
+            height: 100%;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            transform-style: preserve-3d;
+        }
+
+        .cell:active {
+            transform: scale(0.95);
+        }
+
+        /* Undug state - Grass */
+        .cell-undug {
+            background-color: #7CB342;
+            border-bottom: 4px solid #558B2F;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .cell-undug:hover {
+            background-color: #8BC34A;
+        }
+
+        /* Dug state - Dirt */
+        .cell-dug {
+            background-color: #8D6E63;
+            border: 2px inset #5D4037;
+            box-shadow: inset 0 4px 8px rgba(0,0,0,0.4);
+            cursor: default;
+        }
+
+        .chest-icon {
+            font-size: 2rem;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0) rotate(-15deg); opacity: 0; }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            50% { transform: translateX(5px); }
+            75% { transform: translateX(-5px); }
+        }
+        .shake { animation: shake 0.4s ease-in-out; }
+
+        /* -- CÁC HIỆU ỨNG ĐÀO KHO BÁU MỚI -- */
+        @keyframes mapShake {
+            10%, 90% { transform: translate3d(-5px, 0, 0); }
+            20%, 80% { transform: translate3d(8px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-15px, 0, 0); }
+            40%, 60% { transform: translate3d(15px, 0, 0); }
+        }
+        .map-shake { animation: mapShake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
+
+        @keyframes popOutExplosion {
+            0% { transform: scale(0.8); opacity: 1; filter: brightness(2); }
+            100% { transform: scale(4.5); opacity: 0; filter: brightness(1); }
+        }
+        .explosion-anim {
+            position: absolute;
+            inset: -50px;
+            z-index: 20;
+            background: radial-gradient(circle, rgba(255,200,0,0.8) 0%, rgba(255,0,0,0.6) 40%, transparent 70%);
+            border-radius: 50%;
+            animation: popOutExplosion 0.6s ease-out forwards;
+            pointer-events: none;
+        }
+
+        @keyframes floatUp {
+            0% { transform: translateY(10px) scale(0.8); opacity: 1; }
+            100% { transform: translateY(-80px) scale(2.2); opacity: 0; }
+        }
+        /* ---------------------------------- */
+
+        .modal-overlay {
+            backdrop-filter: blur(5px);
+            background-color: rgba(0, 0, 0, 0.6);
+        }
+
+        /* Confetti Canvas */
+        #confetti-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col text-gray-800 overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-white/80 shadow-md p-3 md:p-4 shrink-0 z-10">
+        <div class="container mx-auto px-4 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-map-location-dot text-2xl md:text-3xl text-yellow-600"></i>
+                <h1 class="text-xl md:text-3xl text-yellow-700 tracking-wide uppercase drop-shadow-sm">Truy Tìm Kho Báu</h1>
+            </div>
+            <div class="flex items-center gap-2 md:gap-3">
+                <button id="revenge-mode-btn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 md:px-4 py-2 rounded-full font-bold shadow-sm transition flex items-center gap-2 text-sm md:text-base" title="Bật/Tắt chế độ chơi cho các đội đã bị loại">
+                    <i class="fa-solid fa-skull"></i> <span class="hidden md:inline" id="revenge-mode-text">Sinh tử</span>
+                </button>
+                <button id="fast-forward-btn" class="hidden bg-red-100 hover:bg-red-200 text-red-800 px-3 md:px-4 py-2 rounded-full font-bold shadow-sm transition flex items-center gap-2 text-sm md:text-base">
+                    <i class="fa-solid fa-forward-fast"></i> <span class="hidden md:inline">Mở nhanh</span>
+                </button>
+                <button id="rules-btn" class="bg-indigo-100 hover:bg-indigo-200 text-indigo-800 px-3 md:px-4 py-2 rounded-full font-bold shadow-sm transition flex items-center gap-2 text-sm md:text-base">
+                    <i class="fa-solid fa-scroll"></i> <span class="hidden md:inline">Luật chơi</span>
+                </button>
+                <div id="status-badge" class="bg-blue-100 text-blue-800 px-4 py-2 rounded-full font-bold shadow-inner text-sm md:text-base whitespace-nowrap">
+                    Chuẩn bị
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="w-full max-w-[1500px] mx-auto px-2 md:px-4 py-3 md:py-4 flex flex-col md:flex-row gap-4 md:gap-6 flex-1 overflow-hidden">
+        
+        <!-- Left Sidebar: Teams Info & Controls -->
+        <aside class="w-full md:w-[320px] lg:w-[360px] shrink-0 flex flex-col gap-4 h-full overflow-hidden pb-2">
+            
+            <!-- Danh sách các nhóm (Khu vực này sẽ tự động cuộn nếu quá dài) -->
+            <div class="flex flex-col gap-2 md:gap-3 overflow-y-auto pr-2 flex-1 min-h-0" id="teams-container">
+                <!-- Teams will be injected here by JS -->
+            </div>
+
+            <!-- Setup & Control Area (Được ghim cố định không bao giờ bị khuất) -->
+            <div id="game-controls" class="w-full bg-white rounded-xl shadow-md p-4 md:p-5 text-center border-t-4 border-yellow-400 shrink-0">
+                <h2 id="control-title" class="text-lg md:text-xl text-gray-700 mb-2 brand-font leading-tight">Chào mừng đến với Đảo Giấu Vàng!</h2>
+                <p id="control-desc" class="text-xs md:text-sm text-gray-600 mb-4 leading-snug">Các nhóm lần lượt bí mật chọn 3 vị trí để chôn kho báu của mình.</p>
+                <button id="main-action-btn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-6 rounded-full shadow transition transform hover:-translate-y-1 text-sm md:text-base w-full">
+                    Bắt đầu giấu kho báu
+                </button>
+            </div>
+            
+        </aside>
+
+        <!-- Right Content: The Map -->
+        <section class="flex-1 flex flex-col items-center justify-center overflow-hidden min-h-0">
+            <!-- Wrapper ép khung cho Bản đồ tự động co giãn không bị đẩy tràn viền -->
+            <div class="w-full h-full flex items-center justify-center p-1 md:p-2">
+                
+                <!-- The Grid Map -->
+                <div id="map-container" class="map-grid relative opacity-50 pointer-events-none transition-opacity duration-500">
+                    <!-- Overlay to prevent peeking during transitions -->
+                    <div id="map-blindfold" class="absolute inset-0 bg-gray-900/90 z-10 flex flex-col items-center justify-center rounded-xl text-white">
+                        <i class="fa-solid fa-eye-slash text-4xl mb-3 text-gray-400"></i>
+                        <h3 class="text-lg md:text-xl brand-font text-center px-4 leading-relaxed">Hãy để Nhóm hiện tại thao tác.<br>Các nhóm khác không nhìn nhé!</h3>
+                    </div>
+                    <!-- Cells injected by JS -->
+                </div>
+
+            </div>
+        </section>
+    </main>
+
+    <!-- Modals -->
+    
+    <!-- 1. Question Modal -->
+    <div id="question-modal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4 md:p-8">
+        <!-- Đã làm modal to ra (max-w-6xl) và cao lên (max-h-[95vh]) -->
+        <div class="bg-white rounded-2xl shadow-2xl w-full h-full max-w-6xl max-h-[95vh] flex flex-col overflow-hidden transform scale-95 transition-transform duration-300" id="q-modal-content">
+            <div class="bg-blue-600 p-6 text-white flex justify-between items-center shrink-0">
+                <h3 class="text-3xl font-bold brand-font"><i class="fa-solid fa-circle-question mr-3"></i>Câu hỏi thử thách</h3>
+                <span id="q-timer" class="bg-red-500 px-3 py-1 rounded-full font-bold hidden">30s</span>
+            </div>
+            <!-- Nội dung câu hỏi cuộn được nếu quá dài -->
+            <div class="p-6 md:p-10 flex-grow overflow-y-auto flex flex-col gap-8">
+                <div class="flex-grow flex items-center justify-center">
+                    <p id="q-text" class="text-2xl md:text-4xl font-bold text-gray-800 leading-relaxed text-center">Nội dung câu hỏi?</p>
+                </div>
+                <div id="q-options" class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mt-auto">
+                    <!-- Options injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Alert/Result Modal -->
+    <div id="alert-modal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm text-center overflow-hidden">
+            <div id="alert-header" class="p-4 text-white text-2xl brand-font bg-gray-800">
+                Thông báo
+            </div>
+            <div class="p-6">
+                <div id="alert-icon" class="text-5xl mb-4">🔔</div>
+                <p id="alert-message" class="text-lg font-semibold text-gray-700 mb-6">Nội dung thông báo</p>
+                <button id="alert-close-btn" class="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-xl transition">
+                    Tiếp tục
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Rules Modal -->
+    <div id="rules-modal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden transform scale-95 transition-transform duration-300" id="rules-modal-content">
+            <div class="bg-indigo-600 p-4 text-white flex justify-between items-center">
+                <h3 class="text-xl font-bold brand-font"><i class="fa-solid fa-scroll mr-2"></i>Luật Chơi</h3>
+                <button id="close-rules-btn" class="text-white hover:text-gray-200 transition text-2xl">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="p-6 max-h-[70vh] overflow-y-auto text-gray-700 space-y-4 text-left">
+                <p><strong>1. Chuẩn bị:</strong> Tổng cộng có 5 nhóm, mỗi nhóm có 5 hòm kho báu ban đầu.</p>
+                <p><strong>2. Bản đồ 7x7:</strong> Gồm 49 ô. Trong đó có 30 ô chứa câu hỏi trắc nghiệm và 19 "Ô May Mắn" (đào miễn phí không cần trả lời).</p>
+                <p><strong>3. Giấu kho báu:</strong> Các nhóm lần lượt bí mật chọn 5 vị trí bất kỳ để chôn kho báu. <em>(Được phép chôn trùng vị trí với nhóm khác để tạo thành Combo Bùng Nổ!)</em></p>
+                <p><strong>4. Đào kho báu:</strong> Các nhóm lần lượt chọn ô chưa đào. Nếu bốc trúng ô câu hỏi, phải trả lời đúng mới được lật đất. Trả lời sai sẽ bị mất lượt.</p>
+                <p><strong>5. Đặc quyền:</strong> Nếu đào trúng hòm kho báu của nhóm khác, nhóm của bạn sẽ được <b class="text-green-600">thưởng thêm 1 lượt đào liên tiếp</b>!</p>
+                <p><strong>6. Combo Bùng Nổ:</strong> Nếu một ô chứa kho báu của nhiều nhóm (trùng lặp), đội nào lật trúng sẽ phá hủy hòm của <strong>TẤT CẢ</strong> các nhóm đó cùng lúc!</p>
+                <p><strong>7. Thẻ Đặc Biệt:</strong> Có 3 thẻ được ẩn ngẫu nhiên dưới các lớp đất:
+                    <br>- 🎁 <b>Nổ hũ:</b> Nhận 1 hòm mới, chọn ô trống để giấu. <i>Đặc biệt: Nếu đội "Bóng ma" nhặt được sẽ lập tức được HỒI SINH!</i>
+                    <br>- 📡 <b>Radar 3x3:</b> Thông báo 1 ô tâm cho MC. MC sẽ kiểm tra và mật báo số lượng hòm trong vùng 3x3 quanh ô đó.
+                    <br>- 🚜 <b>Máy xúc:</b> Đào nát 5 ô (Chữ thập) hoặc 7 ô (Hàng/Cột) không cần trả lời câu hỏi!
+                </p>
+                <p><strong>8. Chế độ Trả thù:</strong> MC có thể bật/tắt (Nút Sinh Tử 💀 góc trên). Khi bật, nhóm mất hết hòm (bị loại) hóa thành "Bóng ma" phá bĩnh, vẫn được chơi tiếp để cày nát hòm của đối thủ.</p>
+                <p><strong>9. Chiến thắng:</strong> Nhóm cuối cùng còn kho báu sống sót trên đảo là nhà Vô Địch!</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. Máy Xúc Modal -->
+    <div id="mayxuc-modal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-transform duration-300">
+            <div class="bg-red-600 p-4 text-white text-center">
+                <h3 class="text-2xl font-bold brand-font"><i class="fa-solid fa-tractor mr-2"></i>Chọn Chế Độ Máy Xúc</h3>
+            </div>
+            <div class="p-6 flex flex-col gap-4">
+                <button onclick="selectMayXuc('CROSS')" class="w-full bg-red-100 hover:bg-red-200 text-red-800 font-bold py-4 rounded-xl border-2 border-red-300 transition text-lg">
+                    Chữ Thập (5 ô)
+                </button>
+                <button onclick="selectMayXuc('ROW')" class="w-full bg-red-100 hover:bg-red-200 text-red-800 font-bold py-4 rounded-xl border-2 border-red-300 transition text-lg">
+                    Hàng Ngang (7 ô)
+                </button>
+                <button onclick="selectMayXuc('COL')" class="w-full bg-red-100 hover:bg-red-200 text-red-800 font-bold py-4 rounded-xl border-2 border-red-300 transition text-lg">
+                    Cột Dọc (7 ô)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. Confirm Modal -->
+    <div id="confirm-modal" class="fixed inset-0 modal-overlay hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm text-center overflow-hidden">
+            <div class="p-4 text-white text-2xl brand-font bg-red-600">
+                Xác nhận Mở Nhanh
+            </div>
+            <div class="p-6">
+                <div class="text-5xl mb-4">⚠️</div>
+                <p class="text-lg font-semibold text-gray-700 mb-6">Bạn có chắc chắn muốn lật mở TẤT CẢ các ô không có kho báu để đẩy nhanh đến giai đoạn cuối?</p>
+                <div class="flex gap-4">
+                    <button id="confirm-cancel-btn" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-3 px-4 rounded-xl transition">
+                        Hủy
+                    </button>
+                    <button id="confirm-ok-btn" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl transition">
+                        Mở ngay
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="confetti-canvas"></canvas>
+
+    <script>
+        // --- 1. GAME DATA & STATE ---
+        const TOTAL_CELLS = 49; // 7x7 grid
+        const CHESTS_PER_TEAM = 5;
+        
+        const teamsConfig = [
+            { id: 0, name: 'Nhóm 1', color: 'bg-red-500', textClass: 'text-red-500', hex: '#EF4444', icon: 'fa-gem' },
+            { id: 1, name: 'Nhóm 2', color: 'bg-blue-500', textClass: 'text-blue-500', hex: '#3B82F6', icon: 'fa-crown' },
+            { id: 2, name: 'Nhóm 3', color: 'bg-green-500', textClass: 'text-green-500', hex: '#10B981', icon: 'fa-ring' },
+            { id: 3, name: 'Nhóm 4', color: 'bg-yellow-500', textClass: 'text-yellow-600', hex: '#F59E0B', icon: 'fa-coins' },
+            { id: 4, name: 'Nhóm 6', color: 'bg-purple-500', textClass: 'text-purple-500', hex: '#8B5CF6', icon: 'fa-trophy' },
+        ];
+
+        let teams = [];
+        let grid = []; 
+        /* grid cell: { id: int, dug: boolean, owners: int[], hasQuestion: boolean, specialCard: string|null } */
+        
+        // States: 'INIT', 'SETUP_INTERSTITIAL', 'SETUP_ACTIVE', 'PLAYING', 'GAMEOVER', 'BURY_EXTRA_CHEST', 'RADAR_SELECT', 'MAYXUC_TARGET_SELECT'
+        let gameState = 'INIT'; 
+        let currentSetupTeamIndex = 0;
+        let selectedSetupCells = []; // Tạm lưu vị trí hòm trong lượt giấu
+
+        let currentPlayTeamIndex = 0;
+        let selectedCellToDig = null;
+        let mayXucMode = null; // 'CROSS', 'ROW', 'COL'
+        let isRevengeMode = false; // Trạng thái chế độ Trả thù
+
+        // --- 2. QUESTION BANK ---
+        // Bộ 30 câu hỏi chuẩn từ tài liệu [TTHCM][NHÓM 5][BẢN NỘI DUNG CHÍNH]
+        const questionBank = [
+            { q: "Ai là người đã phát triển khẩu hiệu 'Công nhân toàn thế giới hãy liên hiệp lại!' thành 'Vô sản toàn thế giới và các dân tộc bị áp bức đoàn kết lại!'?", opts: ["C. Mác", "Ph. Ăngghen", "V.I. Lênin", "Hồ Chí Minh"], ans: 2 },
+            { q: "Hình ảnh ẩn dụ 'con đĩa hai vòi' của Lênin dùng để chỉ điều gì?", opts: ["Sự liên minh giữa phong trào công nhân và phong trào nông dân", "Bản chất bóc lột của chủ nghĩa tư bản, đế quốc đối với cả vô sản chính quốc và nhân dân thuộc địa", "Hai khuynh hướng chính trị đối lập trong Quốc tế Cộng sản", "Mối quan hệ giữa sức mạnh dân tộc và sức mạnh thời đại"], ans: 1 },
+            { q: "Giá trị cốt lõi nào trong văn hóa truyền thống dân tộc Việt Nam đã được Hồ Chí Minh kế thừa để phát triển thành nghệ thuật đối ngoại của mình?", opts: ["Tư tưởng bế quan tỏa cảng", "Truyền thống đoàn kết, hòa hiếu, 'thêm bạn bớt thù'", "Tư tưởng dân tộc cực đoan", "Triết lý thoát tục, lánh đời"], ans: 1 },
+            { q: "Khi tiếp thu Tuyên ngôn Độc lập năm 1776 của Mỹ và Tuyên ngôn Nhân quyền và Dân quyền năm 1791 của Pháp, Hồ Chí Minh đã có sự phát triển sáng tạo nào?", opts: ["Phủ nhận hoàn toàn các giá trị tư sản phương Tây", "Nâng tầm quyền tự do của con người cá nhân thành quyền độc lập, tự quyết thiêng liêng của các dân tộc bị áp bức", "Chỉ áp dụng cho các quốc gia châu Á", "Đồng nhất quyền con người với quyền lợi của giai cấp tư sản"], ans: 1 },
+            { q: "Yêu cầu khách quan nào của cách mạng Việt Nam đòi hỏi bắt buộc phải kết hợp sức mạnh dân tộc với sức mạnh thời đại?", opts: ["Do Việt Nam muốn trở thành cường quốc quân sự khu vực", "Do kẻ thù xâm lược là các đế quốc lớn mạnh mang tính chất quốc tế, trong khi VN là nước nhỏ, kinh tế nghèo nàn", "Do yêu cầu chỉ định từ Quốc tế Cộng sản", "Do các nước phương Tây chủ động viện trợ không điều kiện"], ans: 1 },
+            { q: "Hồ Chí Minh đã sử dụng hình ảnh ẩn dụ nào để khẳng định mối quan hệ khăng khít, bình đẳng giữa cách mạng thuộc địa và cách mạng vô sản ở chính quốc?", opts: ["Cây và lá", "Hai cánh của một con chim", "Nước với thuyền", "Con tàu và đường ray"], ans: 1 },
+            { q: "Trong câu nói nổi tiếng của Bác: 'Thực lực là cái chiêng mà ngoại giao là cái tiếng. Chiêng có to tiếng mới lớn', Người muốn nhấn mạnh điều gì?", opts: ["Hoạt động ngoại giao quan trọng hơn phát triển kinh tế", "Nội lực (thực lực trong nước) giữ vai trò quyết định, là cơ sở cho thắng lợi ngoại giao", "Cần hoàn toàn trông chờ vào sự viện trợ của bên ngoài", "Ngoại giao chỉ cần tài ăn nói, không cần sức mạnh nội tại"], ans: 1 },
+            { q: "Đâu là nét đặc sắc thể hiện tính nhân văn trong tư tưởng phân định 'bạn - thù' của Hồ Chí Minh?", opts: ["Coi toàn bộ công dân nước đi xâm lược đều là kẻ thù", "Phân biệt rạch ròi giữa chính quyền thực dân/đế quốc xâm lược với nhân dân lao động yêu chuộng hòa bình ở chính các nước đó", "Không phân biệt bạn và thù, thỏa hiệp với tất cả", "Chỉ làm bạn với các quốc gia châu Á láng giềng"], ans: 1 },
+            { q: "Việc Chủ tịch Hồ Chí Minh chủ động ký Hiệp định Sơ bộ (6/3/1946) và Tạm ước (14/9/1946) với Pháp là minh chứng lịch sử tiêu biểu cho phương châm ngoại giao nào?", opts: ["Bế quan tỏa cảng", "Dĩ bất biến, ứng vạn biến", "Cứng rắn trong mọi tình huống", "Chấp nhận đầu hàng vô điều kiện"], ans: 1 },
+            { q: "Bản chất cốt lõi của nghệ thuật 'Ngoại giao tâm công' trong tư tưởng Hồ Chí Minh là gì?", opts: ["Dùng sức mạnh quân sự tuyệt đối để áp đảo đối phương", "Dùng vật chất, tiền bạc để mua chuộc lòng người", "Dùng chính nghĩa, đạo lý, lẽ phải và lòng nhân ái để cảm hóa, thuyết phục nhân tâm", "Sử dụng các biện pháp trừng phạt kinh tế"], ans: 2 },
+            { q: "Hình tượng 'gốc vững' trong trường phái 'Ngoại giao cây tre Việt Nam' tượng trưng cho điều gì?", opts: ["Sự linh hoạt trong phương thức xử lý các mối quan hệ quốc tế", "Sự kiên định với độc lập, tự chủ, lợi ích quốc gia - dân tộc và các nguyên tắc cơ bản của luật pháp quốc tế", "Bản lĩnh, năng lực tự chủ và khả năng giữ vững lập trường trước các biến động", "Khả năng kết hợp hài hòa giữa đối ngoại chính trị và đối ngoại quốc phòng"], ans: 1 },
+            { q: "Hình tượng 'thân chắc' và 'cành uyển chuyển' phản ánh những đặc điểm nào của đường lối đối ngoại Việt Nam?", opts: ["'Thân chắc' tượng trưng cho lợi ích QG; 'cành uyển chuyển' tượng trưng cho luật pháp quốc tế", "'Thân chắc' thể hiện tính hòa hiếu; 'cành uyển chuyển' thể hiện tính tự lực tự cường", "'Thân chắc' thể hiện bản lĩnh, tự chủ trước biến động; 'cành uyển chuyển' thể hiện linh hoạt, mềm dẻo trong sách lược", "'Thân chắc' là kiên định mục tiêu XHCN; 'cành uyển chuyển' là đa dạng hóa quan hệ không cần nguyên tắc"], ans: 2 },
+            { q: "Phương châm nào trong tư tưởng Hồ Chí Minh là nguồn gốc trực tiếp cho triết lý kết hợp giữa tính 'kiên định về nguyên tắc' và 'linh hoạt về sách lược' của Ngoại giao cây tre?", opts: ["Thêm bạn bớt thù", "Dĩ bất biến, ứng vạn biến", "Độc lập, tự chủ đi đôi với biệt lập", "Kết hợp sức mạnh dân tộc với sức mạnh thời đại"], ans: 1 },
+            { q: "Sự phát triển từ chủ trương 'làm bạn với tất cả các nước' của tư tưởng HCM sang thời kỳ hội nhập quốc tế hiện nay được thể hiện qua hành động cụ thể nào?", opts: ["Chỉ duy trì quan hệ ngoại giao song phương truyền thống", "Thiết lập mạng lưới quan hệ đa dạng và đa tầng nấc (Đối tác chiến lược, ĐT toàn diện...)", "Chỉ tập trung hợp tác với các nước láng giềng Đông Nam Á", "Đóng cửa nền kinh tế để tập trung phát triển tự cấp tự túc"], ans: 1 },
+            { q: "Trong bối cảnh hội nhập quốc tế toàn diện, Việt Nam đã có sự chuyển đổi quan trọng như thế nào tại các diễn đàn đa phương (ASEAN, LHQ, APEC)?", opts: ["Chuyển từ 'chủ động đóng góp' sang chỉ 'tham gia' để quan sát", "Chuyển từ 'tham gia' đơn thuần sang 'chủ động đóng góp và định hình' các luật chơi chung", "Rút lui dần khỏi các tổ chức đa phương để giữ vững độc lập", "Chỉ tham gia khi có sự kêu gọi hoặc yêu cầu từ các cường quốc lớn"], ans: 1 },
+            { q: "Cột mốc ngoại giao nổi bật vào tháng 9/2023 thể hiện sự ứng biến linh hoạt, 'bỏ qua cấp trung gian' trong đan xen lợi ích với các nước lớn là gì?", opts: ["Nâng cấp quan hệ lên ĐTCL Toàn diện với Hàn Quốc", "Nâng cấp quan hệ trực tiếp từ Đối tác Toàn diện lên Đối tác Chiến lược Toàn diện với Hoa Kỳ", "Ký kết Hiệp định RCEP", "Trúng cử vào Hội đồng Nhân quyền LHQ"], ans: 1 },
+            { q: "Chính sách quốc phòng nào dưới đây được ví như nền tảng 'gốc vững' để Việt Nam thực hiện mô hình 'cân bằng có nguyên tắc'?", opts: ["Chính sách quốc phòng 'Bốn Không'", "Chính sách đơn phương liên minh quân sự với các nước láng giềng", "Chính sách bế quan tỏa cảng quân sự", "Chính sách cho phép nước ngoài đặt căn cứ quân sự"], ans: 0 },
+            { q: "Khái niệm 'Gốc vững' của Ngoại giao cây tre được áp dụng như thế nào nhằm bảo vệ an ninh quốc gia trong kỷ nguyên số?", opts: ["Cho phép các tập đoàn công nghệ nước ngoài hoàn toàn kiểm soát dữ liệu", "Không tham gia vào hoạt động thương mại điện tử quốc tế", "Bảo vệ chủ quyền dữ liệu và an ninh mạng quốc gia, yêu cầu nền tảng xuyên biên giới tuân thủ luật pháp", "Ngừng chuyển giao công nghệ cao từ bên ngoài"], ans: 2 },
+            { q: "Việc đón tiếp liên tiếp nguyên thủ của Mỹ (9/2023), Trung Quốc (12/2023) và Nga (2024) thể hiện năng lực thực tiễn nào của 'cành uyển chuyển'?", opts: ["Đưa VN thành trung tâm liên minh quân sự mới", "Biến thách thức cạnh tranh giữa các nước lớn thành cơ hội hợp tác, tạo thế 'cân bằng chiến lược'", "Buộc các cường quốc phải nhượng bộ hoàn toàn về mặt thương mại", "Thể hiện sự thiên lệch chiến lược sang phương Tây"], ans: 1 },
+            { q: "Dựa trên 'gốc vững' là chính sách quốc phòng 'Bốn Không', tính linh hoạt ngoại giao VN được áp dụng vào thực tiễn quân sự qua hành động nào?", opts: ["Ký kết hiệp ước phòng thủ chung với các nước ASEAN", "Cho phép nước ngoài đặt căn cứ quân sự tạm thời tại các đảo tiền tiêu", "Đón các tàu hải quân nước ngoài đến thăm cảng Quốc tế Cam Ranh để bảo dưỡng hậu cần", "Tham gia các cuộc tập trận tấn công quân sự quy mô lớn"], ans: 2 },
+            { q: "Bước nhảy vọt thực tiễn khi linh hoạt nâng cấp quan hệ bỏ qua cấp trung gian lên Đối tác CL Toàn diện với Hoa Kỳ (9/2023) đã mang lại kết quả cốt lõi nào?", opts: ["Xóa bỏ hoàn toàn thuế quan cho hàng nông sản VN", "Bùng nổ hợp tác R&D, chuyển giao công nghệ và đưa VN vào chuỗi cung ứng bán dẫn toàn cầu", "Hoa Kỳ cam kết cung cấp toàn bộ trang bị quốc phòng truyền thống cho VN", "Chuyển đổi toàn bộ hệ thống năng lượng của VN sang năng lượng xanh trong 2 năm"], ans: 1 },
+            { q: "Khi vận dụng Ngoại giao Cây tre vào kỷ nguyên số, hành động thực tiễn nào được xác định là 'gốc vững' để bảo vệ chủ quyền quốc gia?", opts: ["Cấm hoàn toàn các nền tảng MXH xuyên biên giới hoạt động tại VN", "Đóng cửa hệ thống mạng internet quốc gia để xây dựng mạng nội bộ", "Bảo vệ chủ quyền dữ liệu, an ninh mạng QG và yêu cầu các nền tảng xuyên biên giới tuân thủ luật pháp", "Giao phó toàn bộ hạ tầng dữ liệu cho các tập đoàn công nghệ toàn cầu"], ans: 2 },
+            { q: "Hình ảnh một 'Cây tre Việt Nam' nhân văn, trách nhiệm được hiện thực hóa sinh động qua hoạt động Gìn giữ Hòa bình tại LHQ nhờ yếu tố đặc biệt nào?", opts: ["Cử hơn 1.100 lượt sĩ quan vận hành Bệnh viện dã chiến và Đội Công binh với tỷ lệ nữ sĩ quan 13-16%", "Cung cấp vũ khí và khí tài quân sự miễn phí cho các phái bộ tại châu Phi", "Trở thành quốc gia đóng góp ngân sách lớn nhất cho hoạt động gìn giữ hòa bình", "Cử lực lượng tác chiến trực tiếp tham gia giải quyết xung đột tại Trung Đông"], ans: 0 },
+            { q: "Tại ASEAN, thực tiễn 'kiến tạo luật chơi' và tạo 'lá chắn mềm' của ngoại giao Việt Nam được thể hiện rõ nhất qua hành động nào?", opts: ["Yêu cầu loại bỏ các quốc gia không ủng hộ VN ra khỏi khối", "Đơn phương thiết lập các quy tắc thương mại mới áp dụng bắt buộc cho toàn khối", "Chủ động đưa Hiệp ước TAC thành quy tắc ứng xử chung và kiên trì đàm phán COC dựa trên UNCLOS 1982", "Rút khỏi các cơ chế đa phương để tập trung đàm phán song phương"], ans: 2 },
+            { q: "Trong vai trò Chủ tịch ASEAN năm 2020, Việt Nam đã vận dụng năng lực 'kiến tạo luật chơi' để giúp khối tránh bị đứt gãy thông qua sáng kiến nào?", opts: ["Đề xuất thành lập liên minh tiền tệ chung", "Dẫn dắt thiết lập quỹ ứng phó COVID-19 và kho dự phòng y tế cho ASEAN", "Ký kết hiệp ước phòng thủ quân sự chung đối phó khủng hoảng", "Đình chỉ các hoạt động thương mại nội khối để tập trung chống dịch"], ans: 1 },
+            { q: "Trong bối cảnh cạnh tranh chiến lược gay gắt, việc duy trì thành công mô hình 'cân bằng có nguyên tắc' giúp Việt Nam đạt được lợi thế thực tiễn nào?", opts: ["Không đứng ngoài thời cuộc nhưng kiên quyết không trở thành công cụ ủy nhiệm của bất kỳ bên nào", "Nhận được viện trợ quân sự vô điều kiện từ tất cả các cường quốc", "Tự động trở thành thành viên cốt cán trong các liên minh an ninh", "Đóng cửa nền kinh tế để tránh rủi ro từ sự cạnh tranh"], ans: 0 },
+            { q: "Trong hình tượng 'ngoại giao cây tre Việt Nam', bộ phận nào chỉ nguyên tắc bảo đảm cao nhất lợi ích quốc gia - dân tộc, độc lập, tự chủ?", opts: ["Gốc vững", "Thân chắc", "Cành uyển chuyển", "Ngọn tre"], ans: 0 },
+            { q: "So với phương châm đối ngoại 'thao quang dưỡng hối' (giấu mình chờ thời) của Trung Quốc, điểm khác biệt căn bản của 'ngoại giao cây tre VN' là gì?", opts: ["Cả hai đều chủ trương né tránh hoàn toàn các vấn đề quốc tế", "Ngoại giao cây tre chỉ áp dụng trong quan hệ song phương", "Hai học thuyết hoàn toàn giống nhau về bản chất", "Ngoại giao cây tre chủ trương chủ động, tích cực hội nhập và phát huy vai trò quốc tế, không 'ẩn mình chờ thời'"], ans: 3 },
+            { q: "Theo Văn kiện Đại hội XIII, câu nào khẳng định ý nghĩa của việc nâng cao vị thế, uy tín Việt Nam?", opts: ["Vô sản toàn thế giới đoàn kết lại", "Thêm bạn bớt thù", "Đất nước ta chưa bao giờ có được cơ đồ, tiềm lực, vị thế và uy tín quốc tế như ngày nay", "Dĩ bất biến ứng vạn biến"], ans: 2 },
+            { q: "Câu nói 'Dĩ bất biến, ứng vạn biến' được Hồ Chí Minh trực tiếp căn dặn cho ai, trong hoàn cảnh lịch sử cụ thể nào?", opts: ["Căn dặn Trường Chinh trong CMT8 năm 1945", "Căn dặn Phạm Văn Đồng tại Hội nghị Genève năm 1954", "Căn dặn Huỳnh Thúc Kháng - Quyền Chủ tịch nước, trước khi Người sang Pháp dự Hội nghị Fontainebleau (5/1946)", "Căn dặn Võ Nguyên Giáp, trước chiến dịch Điện Biên Phủ 1954"], ans: 2 }
+        ];
+
+        let availableQuestions = [...questionBank]; // Clone array to shuffle/pop
+
+        // --- 3. DOM ELEMENTS ---
+        const mapContainer = document.getElementById('map-container');
+        const mapBlindfold = document.getElementById('map-blindfold');
+        const teamsContainer = document.getElementById('teams-container');
+        const gameControls = document.getElementById('game-controls');
+        const controlTitle = document.getElementById('control-title');
+        const controlDesc = document.getElementById('control-desc');
+        const mainActionBtn = document.getElementById('main-action-btn');
+        const statusBadge = document.getElementById('status-badge');
+
+        const qModal = document.getElementById('question-modal');
+        const qModalContent = document.getElementById('q-modal-content');
+        const qText = document.getElementById('q-text');
+        const qOptions = document.getElementById('q-options');
+
+        const alertModal = document.getElementById('alert-modal');
+        const alertHeader = document.getElementById('alert-header');
+        const alertIcon = document.getElementById('alert-icon');
+        const alertMessage = document.getElementById('alert-message');
+        const alertCloseBtn = document.getElementById('alert-close-btn');
+
+        const rulesBtn = document.getElementById('rules-btn');
+        const rulesModal = document.getElementById('rules-modal');
+        const rulesModalContent = document.getElementById('rules-modal-content');
+        const closeRulesBtn = document.getElementById('close-rules-btn');
+
+        const revengeModeBtn = document.getElementById('revenge-mode-btn');
+        const revengeModeText = document.getElementById('revenge-mode-text');
+
+        const mayxucModal = document.getElementById('mayxuc-modal');
+
+        const fastForwardBtn = document.getElementById('fast-forward-btn');
+        const confirmModal = document.getElementById('confirm-modal');
+        const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+        const confirmOkBtn = document.getElementById('confirm-ok-btn');
+
+        // --- 4. INITIALIZATION ---
+        function initGame() {
+            // Setup Rules Modal listeners
+            rulesBtn.onclick = () => {
+                rulesModalContent.classList.remove('scale-95');
+                rulesModal.classList.remove('hidden');
+            };
+            closeRulesBtn.onclick = () => {
+                rulesModal.classList.add('hidden');
+                rulesModalContent.classList.add('scale-95');
+            };
+
+            // Setup Revenge Mode toggle
+            revengeModeBtn.onclick = () => {
+                isRevengeMode = !isRevengeMode;
+                if (isRevengeMode) {
+                    revengeModeBtn.classList.replace('bg-gray-100', 'bg-purple-100');
+                    revengeModeBtn.classList.replace('hover:bg-gray-200', 'hover:bg-purple-200');
+                    revengeModeBtn.classList.replace('text-gray-700', 'text-purple-800');
+                    revengeModeText.innerText = "Trả thù";
+                } else {
+                    revengeModeBtn.classList.replace('bg-purple-100', 'bg-gray-100');
+                    revengeModeBtn.classList.replace('hover:bg-purple-200', 'hover:bg-gray-200');
+                    revengeModeBtn.classList.replace('text-purple-800', 'text-gray-700');
+                    revengeModeText.innerText = "Sinh tử";
+                }
+                renderTeams();
+            };
+
+            // Setup Fast Forward listeners
+            fastForwardBtn.onclick = () => {
+                confirmModal.classList.remove('hidden');
+            };
+            confirmCancelBtn.onclick = () => {
+                confirmModal.classList.add('hidden');
+            };
+            confirmOkBtn.onclick = () => {
+                confirmModal.classList.add('hidden');
+                autoDigEmptyCells();
+            };
+
+            // Reset teams
+            teams = teamsConfig.map(t => ({
+                ...t,
+                chests: CHESTS_PER_TEAM,
+                alive: true
+            }));
+
+            // Tạo mảng 49 ô, phân bổ ngẫu nhiên 30 ô có câu hỏi và 19 ô may mắn
+            let cellTypes = Array(TOTAL_CELLS).fill(false);
+            for(let i = 0; i < 30; i++) {
+                cellTypes[i] = true; // true = có câu hỏi
+            }
+            // Trộn mảng ngẫu nhiên (Fisher-Yates shuffle)
+            for (let i = cellTypes.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [cellTypes[i], cellTypes[j]] = [cellTypes[j], cellTypes[i]];
+            }
+
+            // Tạo ngẫu nhiên 3 vị trí cho 3 thẻ đặc biệt
+            let specialCards = ['NOHU', 'RADAR', 'MAYXUC'];
+            let specialIndices = [];
+            while(specialIndices.length < 3) {
+                let r = Math.floor(Math.random() * TOTAL_CELLS);
+                if (!specialIndices.includes(r)) specialIndices.push(r);
+            }
+
+            // Reset Grid
+            grid = Array.from({length: TOTAL_CELLS}, (_, i) => {
+                let special = null;
+                const spIdx = specialIndices.indexOf(i);
+                if (spIdx !== -1) special = specialCards[spIdx];
+
+                return {
+                    id: i,
+                    dug: false,
+                    owners: [],
+                    hasQuestion: cellTypes[i],
+                    specialCard: special
+                };
+            });
+
+            // Shuffle questions (Fisher-Yates) cho lần đầu
+            availableQuestions = [...questionBank];
+            for (let i = availableQuestions.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [availableQuestions[i], availableQuestions[j]] = [availableQuestions[j], availableQuestions[i]];
+            }
+
+            gameState = 'INIT';
+            updateUIState();
+        }
+
+        function renderTeams() {
+            teamsContainer.innerHTML = '';
+            teams.forEach((team, index) => {
+                const isActive = (gameState === 'SETUP_ACTIVE' && currentSetupTeamIndex === index) || (gameState === 'PLAYING' && currentPlayTeamIndex === index) || ((gameState === 'BURY_EXTRA_CHEST' || gameState === 'MAYXUC_TARGET_SELECT') && currentPlayTeamIndex === index);
+                const isDead = !team.alive;
+                
+                let opacity = isDead ? 'opacity-40 grayscale' : 'opacity-100';
+                let statusLabel = isDead ? 'Đã loại' : (isActive ? 'Đang chơi' : 'Chờ lượt');
+                let borderStyle = isActive ? `border-2 border-yellow-400 shadow-lg scale-[1.02] z-10 relative` : `border border-gray-200 shadow-sm`;
+
+                // Chỉnh sửa giao diện nếu đội đã chết nhưng chế độ Trả thù được bật
+                if (isDead && isRevengeMode) {
+                    opacity = 'opacity-90'; 
+                    statusLabel = isActive ? '👻 Đang phá đám' : '👻 Chờ báo thù';
+                    if (isActive) borderStyle = `border-2 border-purple-500 shadow-lg scale-[1.02] z-10 relative`;
+                }
+                
+                // Generate chest icons based on remaining chests
+                let chestsHTML = '';
+                for (let i = 0; i < team.chests; i++) {
+                    chestsHTML += `<i class="fa-solid ${team.icon} text-lg md:text-xl ${team.textClass} drop-shadow-sm"></i>`;
+                }
+                if (team.chests <= 0) {
+                    chestsHTML = `<i class="fa-solid fa-skull-crossbones text-gray-400 text-lg md:text-xl"></i>`;
+                }
+
+                const teamCard = `
+                    <div class="bg-white rounded-xl p-3 md:p-4 transition-all duration-300 flex flex-row items-center justify-between ${opacity} ${borderStyle}" id="team-card-${index}">
+                        <div class="flex items-center gap-2 md:gap-3">
+                            <div class="w-8 h-8 md:w-10 md:h-10 shrink-0 rounded-full ${team.color} flex items-center justify-center text-white font-bold text-sm md:text-lg shadow-inner">
+                                ${index + 1}
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-sm md:text-base text-gray-800 whitespace-nowrap">${team.name}</h3>
+                                <p class="text-[10px] md:text-xs text-gray-500 font-semibold uppercase tracking-wider">${statusLabel}</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-1 md:gap-2 shrink-0">
+                            ${chestsHTML}
+                        </div>
+                    </div>
+                `;
+                teamsContainer.insertAdjacentHTML('beforeend', teamCard);
+            });
+        }
+
+        function renderGrid() {
+            mapContainer.innerHTML = '';
+            mapContainer.appendChild(mapBlindfold); // Keep blindfold in DOM
+
+            // Thêm tiêu đề cột (ô đầu trống, sau đó là 1 -> 7)
+            const cols = ['', '1', '2', '3', '4', '5', '6', '7'];
+            cols.forEach(text => {
+                const h = document.createElement('div');
+                h.className = 'flex items-center justify-center font-bold text-yellow-900 text-sm md:text-lg brand-font drop-shadow-sm';
+                h.innerText = text;
+                mapContainer.appendChild(h);
+            });
+
+            const rowLabels = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+            let cellIndex = 0;
+
+            rowLabels.forEach(rowLabel => {
+                // Thêm tiêu đề dòng (A, B, C...)
+                const rh = document.createElement('div');
+                rh.className = 'flex items-center justify-center font-bold text-yellow-900 text-sm md:text-lg brand-font drop-shadow-sm';
+                rh.innerText = rowLabel;
+                mapContainer.appendChild(rh);
+
+                // Render 7 ô đất của dòng này
+                for(let c = 0; c < 7; c++) {
+                    const cell = grid[cellIndex];
+                    const cellEl = document.createElement('div');
+                    cellEl.className = 'cell flex items-center justify-center';
+                    cellEl.dataset.index = cell.id; // Gắn ID để dễ dàng target animation
+                    
+                    if (gameState === 'SETUP_ACTIVE') {
+                        // In setup phase, show green grass, but highlight selected ones for current team
+                        cellEl.classList.add('cell-undug');
+                        if (selectedSetupCells.includes(cell.id)) {
+                            cellEl.classList.remove('cell-undug');
+                            cellEl.classList.add('cell-dug'); // Make it look temporarily dug
+                            // Show current team's chest placeholder
+                            const currTeam = teams[currentSetupTeamIndex];
+                            cellEl.innerHTML = `<i class="fa-solid ${currTeam.icon} chest-icon ${currTeam.textClass}"></i>`;
+                        }
+                        cellEl.onclick = () => handleSetupCellClick(cell.id);
+                    } 
+                    else if (['PLAYING', 'GAMEOVER', 'BURY_EXTRA_CHEST', 'MAYXUC_TARGET_SELECT'].includes(gameState)) {
+                        if (cell.dug) {
+                            cellEl.classList.add('cell-dug');
+                            if (cell.owners.length > 0) {
+                                if (cell.owners.length === 1) {
+                                    const ownerTeam = teams[cell.owners[0]];
+                                    cellEl.innerHTML = `<i class="fa-solid ${ownerTeam.icon} chest-icon text-2xl ${ownerTeam.textClass}"></i>`;
+                                } else {
+                                    // Nhiều hòm trong cùng 1 ô
+                                    let iconsHtml = cell.owners.map(ownerIndex => {
+                                        const ownerTeam = teams[ownerIndex];
+                                        return `<i class="fa-solid ${ownerTeam.icon} text-lg ${ownerTeam.textClass} drop-shadow-md"></i>`;
+                                    }).join('');
+                                    cellEl.innerHTML = `<div class="flex flex-wrap items-center justify-center gap-1 p-1 chest-icon">${iconsHtml}</div>`;
+                                }
+                            } else {
+                                // Empty dirt (maybe a small pebble)
+                                cellEl.innerHTML = `<div class="w-2 h-2 rounded-full bg-gray-700 opacity-30"></div>`;
+                            }
+                        } else {
+                            cellEl.classList.add('cell-undug');
+                            // Cho phép click để đào nếu chưa đào, hoặc làm tâm nổ máy xúc
+                            cellEl.onclick = () => handlePlayCellClick(cell.id);
+                        }
+                        // Trạng thái máy xúc cho phép bấm vào cả ô đã đào rồi
+                        if (gameState === 'MAYXUC_TARGET_SELECT' && cell.dug) {
+                            cellEl.onclick = () => handlePlayCellClick(cell.id);
+                        }
+                    }
+                    else {
+                        // INIT or INTERSTITIAL
+                        cellEl.classList.add('cell-undug');
+                    }
+                    
+                    mapContainer.appendChild(cellEl);
+                    cellIndex++;
+                }
+            });
+        }
+
+        // --- 5. STATE MANAGEMENT ---
+        function updateUIState() {
+            renderTeams();
+            renderGrid();
+
+            // Hiển thị nút Mở Nhanh khi đang trong game
+            if (['PLAYING', 'MAYXUC_TARGET_SELECT', 'BURY_EXTRA_CHEST'].includes(gameState)) {
+                fastForwardBtn.classList.remove('hidden');
+            } else {
+                fastForwardBtn.classList.add('hidden');
+            }
+
+            switch (gameState) {
+                case 'INIT':
+                    statusBadge.innerText = "Chuẩn bị";
+                    statusBadge.className = "bg-gray-100 text-gray-800 px-4 py-2 rounded-full font-bold shadow-inner";
+                    controlTitle.innerText = "Chào mừng đến với Đảo Giấu Vàng!";
+                    // Sửa lại đoạn text bị nhầm từ 30 ô thành 49 ô
+                    controlDesc.innerText = "Các nhóm sẽ lần lượt bí mật giấu 5 rương kho báu của mình trên bản đồ 49 ô. Sẵn sàng chưa?";
+                    mainActionBtn.innerText = "Bắt đầu giấu kho báu";
+                    mainActionBtn.classList.replace('hidden', 'inline-block');
+                    mainActionBtn.onclick = startSetupPhase;
+                    
+                    mapContainer.classList.add('opacity-50', 'pointer-events-none');
+                    mapBlindfold.classList.remove('hidden');
+                    break;
+
+                case 'SETUP_INTERSTITIAL':
+                    const nextTeam = teams[currentSetupTeamIndex];
+                    statusBadge.innerText = `Lượt giấu: ${nextTeam.name}`;
+                    statusBadge.className = `${nextTeam.color} text-white px-4 py-2 rounded-full font-bold shadow-inner`;
+                    
+                    controlTitle.innerText = `Đến lượt ${nextTeam.name} giấu kho báu!`;
+                    controlDesc.innerText = "Cảnh báo: Các nhóm khác vui lòng nhắm mắt hoặc quay đi để đảm bảo bí mật!";
+                    mainActionBtn.innerText = "Chúng tôi đã sẵn sàng";
+                    mainActionBtn.classList.replace('hidden', 'inline-block');
+                    mainActionBtn.onclick = () => {
+                        gameState = 'SETUP_ACTIVE';
+                        updateUIState();
+                    };
+
+                    mapContainer.classList.add('opacity-50', 'pointer-events-none');
+                    mapBlindfold.classList.remove('hidden');
+                    break;
+
+                case 'SETUP_ACTIVE':
+                    const actTeam = teams[currentSetupTeamIndex];
+                    mapContainer.classList.remove('opacity-50', 'pointer-events-none');
+                    mapBlindfold.classList.add('hidden');
+                    
+                    controlTitle.innerText = `${actTeam.name} đang giấu kho báu`;
+                    controlDesc.innerText = `Hãy chọn đúng 5 ô trống. Đã chọn: ${selectedSetupCells.length}/5`;
+                    
+                    if (selectedSetupCells.length === 5) {
+                        mainActionBtn.innerText = "Hoàn tất giấu";
+                        mainActionBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                        mainActionBtn.disabled = false;
+                        mainActionBtn.onclick = confirmSetupTurn;
+                    } else {
+                        mainActionBtn.innerText = "Vui lòng chọn 3 ô";
+                        mainActionBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                        mainActionBtn.disabled = true;
+                    }
+                    break;
+
+                case 'PLAYING':
+                    const playTeam = teams[currentPlayTeamIndex];
+                    statusBadge.innerText = `Đang chơi: ${playTeam.name}`;
+                    statusBadge.className = `${playTeam.color} text-white px-4 py-2 rounded-full font-bold shadow-inner`;
+                    
+                    controlTitle.innerText = `Lượt của ${playTeam.name}`;
+                    controlDesc.innerText = "Hãy chọn 1 ô đất trên bản đồ để đào. Trả lời đúng câu hỏi để được đào!";
+                    mainActionBtn.classList.add('hidden'); // Hide button during play
+                    
+                    mapContainer.classList.remove('opacity-50', 'pointer-events-none');
+                    mapBlindfold.classList.add('hidden');
+                    break;
+
+                case 'BURY_EXTRA_CHEST':
+                    statusBadge.innerText = `Nổ Hũ!`;
+                    statusBadge.className = `bg-yellow-500 text-white px-4 py-2 rounded-full font-bold shadow-inner`;
+                    controlTitle.innerText = `Lượt phụ của ${teams[currentPlayTeamIndex].name}`;
+                    controlDesc.innerText = "Hãy chọn 1 ô CHƯA BỊ ĐÀO trên bản đồ để giấu thêm 1 rương kho báu!";
+                    break;
+                
+                case 'MAYXUC_TARGET_SELECT':
+                    statusBadge.innerText = `Máy Xúc 🚜`;
+                    statusBadge.className = `bg-red-600 text-white px-4 py-2 rounded-full font-bold shadow-inner`;
+                    controlTitle.innerText = `Cày nát bản đồ`;
+                    controlDesc.innerText = `Hãy chọn 1 ô BẤT KỲ làm tâm để cày nát các ô theo chế độ đã chọn!`;
+                    break;
+
+                case 'GAMEOVER':
+                    const winner = teams.find(t => t.alive);
+                    statusBadge.innerText = `Kết thúc!`;
+                    statusBadge.className = `bg-yellow-400 text-yellow-900 px-4 py-2 rounded-full font-bold shadow-inner`;
+                    
+                    controlTitle.innerText = winner ? `🎉 Chúc mừng ${winner.name} Đã Chiến Thắng! 🎉` : `Tất cả đều thua?`;
+                    controlDesc.innerText = winner ? `Họ là những nhà thám hiểm tài ba nhất còn sót lại trên đảo.` : `Trò chơi kết thúc.`;
+                    mainActionBtn.innerText = "Chơi lại từ đầu";
+                    mainActionBtn.classList.replace('hidden', 'inline-block');
+                    mainActionBtn.disabled = false;
+                    mainActionBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    mainActionBtn.onclick = initGame;
+                    
+                    mapContainer.classList.remove('pointer-events-none'); // allow viewing the map
+                    if (winner) triggerConfetti();
+                    break;
+            }
+        }
+
+        function startSetupPhase() {
+            currentSetupTeamIndex = 0;
+            selectedSetupCells = [];
+            gameState = 'SETUP_INTERSTITIAL';
+            updateUIState();
+        }
+
+        function handleSetupCellClick(cellId) {
+            // Cho phép trùng lặp: không cần kiểm tra ô đã có chủ nữa
+            
+            const index = selectedSetupCells.indexOf(cellId);
+            if (index > -1) {
+                // Deselect
+                selectedSetupCells.splice(index, 1);
+            } else {
+                // Select if < 3
+                if (selectedSetupCells.length < CHESTS_PER_TEAM) {
+                    selectedSetupCells.push(cellId);
+                } else {
+                    // Provide tiny visual feedback (shake effect on button)
+                    mainActionBtn.classList.add('shake');
+                    setTimeout(() => mainActionBtn.classList.remove('shake'), 400);
+                }
+            }
+            updateUIState();
+        }
+
+        function confirmSetupTurn() {
+            // Save to grid
+            selectedSetupCells.forEach(cellId => {
+                grid[cellId].owners.push(currentSetupTeamIndex);
+            });
+
+            currentSetupTeamIndex++;
+            selectedSetupCells = [];
+
+            if (currentSetupTeamIndex >= teams.length) {
+                // All teams finished setup
+                startGame();
+            } else {
+                gameState = 'SETUP_INTERSTITIAL';
+                updateUIState();
+            }
+        }
+
+        function startGame() {
+            gameState = 'PLAYING';
+            currentPlayTeamIndex = 0;
+            // Đảm bảo nhóm đầu tiên hợp lệ để chơi
+            if (!teams[currentPlayTeamIndex].alive && !isRevengeMode) nextTurn(); 
+            else updateUIState();
+        }
+
+        function handlePlayCellClick(cellId) {
+            const currTeam = teams[currentPlayTeamIndex];
+
+            // Xử lý các trạng thái kỹ năng đặc biệt trước
+            if (gameState === 'BURY_EXTRA_CHEST') {
+                if (grid[cellId].dug) {
+                    // Không cho phép giấu vào ô đã bị đào
+                    return; 
+                }
+                grid[cellId].owners.push(currTeam.id);
+                currTeam.chests++;
+                
+                let extraMsg = "";
+                // Logic Hồi sinh nếu đội đã bị loại (bóng ma) nhận được thêm rương
+                if (!currTeam.alive) {
+                    currTeam.alive = true;
+                    extraMsg = "<br><br><span class='text-yellow-200 text-lg font-black uppercase drop-shadow-md animate-pulse'>🎉 PHÉP MÀU! ĐỘI BẠN ĐÃ ĐƯỢC HỒI SINH! 🎉</span>";
+                }
+                
+                renderTeams(); // Cập nhật lại UI số lượng hòm
+                showAlert('THÀNH CÔNG! 🎁', `Đã chôn thêm 1 kho báu an toàn. Nhóm bạn đang có ${currTeam.chests} rương!${extraMsg}`, 'bg-green-600', 'fa-check', () => {
+                    checkWinCondition(window.pendingKeepTurn || false);
+                    window.pendingKeepTurn = false; // reset
+                });
+                return;
+            }
+
+            if (gameState === 'MAYXUC_TARGET_SELECT') {
+                executeMultipleDigs(cellId);
+                return;
+            }
+
+            // Normal Play
+            if (grid[cellId].dug) return; // Already dug
+
+            selectedCellToDig = cellId;
+            
+            if (grid[cellId].hasQuestion) {
+                showQuestionModal();
+            } else {
+                // Nếu chọn trúng 1 trong 19 ô trống, đào miễn phí!
+                showAlert(
+                    'Ô May Mắn! 🍀', 
+                    'Tuyệt vời! Nhóm bạn đã chọn trúng ô đất không có câu hỏi bảo vệ. Tiến hành đào ngay lập tức!', 
+                    'bg-green-500', 
+                    'fa-leaf',
+                    () => {
+                        executeDig(); // Đào luôn không cần hỏi
+                    }
+                );
+            }
+        }
+
+        function showQuestionModal() {
+            // Tự động nạp và xáo trộn lại bộ câu hỏi nếu đã sử dụng hết (Fisher-Yates)
+            if (availableQuestions.length === 0) {
+                availableQuestions = [...questionBank];
+                for (let i = availableQuestions.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [availableQuestions[i], availableQuestions[j]] = [availableQuestions[j], availableQuestions[i]];
+                }
+            }
+
+            // Lấy ra 1 câu hỏi từ cuối mảng (pop)
+            const q = availableQuestions.pop();
+
+            // Cập nhật giao diện Modal
+            qText.innerText = q.q;
+            qModal.dataset.ans = q.ans; // Lưu đáp án đúng vào data attribute
+            qOptions.innerHTML = ''; // Clear cũ
+
+            q.opts.forEach((opt, idx) => {
+                const btn = document.createElement('button');
+                // Tăng kích thước nút, padding, chữ đậm và to hơn
+                btn.className = "w-full text-left p-6 md:p-8 rounded-2xl border-4 border-gray-200 hover:border-blue-500 hover:bg-blue-50 transition font-bold text-xl md:text-2xl text-gray-700 shadow-sm";
+                btn.innerText = `${String.fromCharCode(65 + idx)}. ${opt}`;
+                btn.onclick = () => submitAnswer(idx, btn);
+                qOptions.appendChild(btn);
+            });
+
+            qModalContent.classList.remove('scale-95');
+            qModal.classList.remove('hidden');
+        }
+
+        function submitAnswer(selectedIndex, btnElement) {
+            const correctIndex = parseInt(qModal.dataset.ans);
+            const isCorrect = (selectedIndex === correctIndex);
+
+            // Disable all buttons to prevent double clicking
+            Array.from(qOptions.children).forEach(btn => {
+                btn.disabled = true;
+                btn.classList.add('cursor-not-allowed');
+            });
+
+            if (isCorrect) {
+                btnElement.classList.replace('border-gray-200', 'border-green-500');
+                btnElement.classList.replace('hover:bg-blue-50', 'bg-green-100');
+                btnElement.classList.add('text-green-800');
+                
+                setTimeout(() => {
+                    closeQuestionModal();
+                    executeDig();
+                }, 1000);
+            } else {
+                btnElement.classList.replace('border-gray-200', 'border-red-500');
+                btnElement.classList.replace('hover:bg-blue-50', 'bg-red-100');
+                btnElement.classList.add('text-red-800');
+                
+                // Highlight correct answer
+                const correctBtn = qOptions.children[correctIndex];
+                correctBtn.classList.replace('border-gray-200', 'border-green-500');
+                correctBtn.classList.add('bg-green-100');
+
+                setTimeout(() => {
+                    closeQuestionModal();
+                    showAlert(
+                        'Sai rồi!', 
+                        'Rất tiếc, câu trả lời chưa chính xác. Bạn đã mất lượt đào!', 
+                        'bg-red-500', 
+                        'fa-circle-xmark',
+                        nextTurn
+                    );
+                }, 1500);
+            }
+        }
+
+        function closeQuestionModal() {
+            qModal.classList.add('hidden');
+            qModalContent.classList.add('scale-95');
+        }
+
+        function executeDig() {
+            const cell = grid[selectedCellToDig];
+            cell.dug = true;
+            
+            const currTeam = teams[currentPlayTeamIndex];
+            
+            renderGrid(); // Visually update map
+
+            const cellEl = document.querySelector(`.cell[data-index="${selectedCellToDig}"]`);
+            
+            // Xử lý ném icon thẻ bài đặc biệt lên nếu có
+            if (cell.specialCard) {
+                const cardAnim = document.createElement('div');
+                cardAnim.className = 'absolute text-6xl drop-shadow-2xl z-40';
+                cardAnim.innerHTML = cell.specialCard === 'NOHU' ? '🎁' : (cell.specialCard === 'RADAR' ? '📡' : '🚜');
+                cardAnim.style.animation = 'floatUp 1.5s ease-out forwards';
+                cellEl.appendChild(cardAnim);
+            }
+
+            let hitOtherTeam = false;
+
+            let afterDigCallback = () => {
+                if (cell.specialCard) {
+                    triggerSpecialCard(cell.specialCard, hitOtherTeam);
+                } else {
+                    checkWinCondition(hitOtherTeam);
+                }
+            };
+
+            if (cell.owners.length > 0) {
+                const isCombo = cell.owners.length > 1;
+                
+                // Rung lắc bản đồ nếu là combo bùng nổ
+                if (isCombo && mapContainer) {
+                    mapContainer.classList.add('map-shake');
+                    setTimeout(() => mapContainer.classList.remove('map-shake'), 500);
+                }
+
+                // Thêm hiệu ứng vụ nổ ánh sáng - Phóng to icon (text-7xl)
+                const explosion = document.createElement('div');
+                explosion.className = 'explosion-anim flex items-center justify-center text-7xl drop-shadow-2xl z-20';
+                explosion.innerHTML = isCombo ? '💥' : '✨';
+                cellEl.appendChild(explosion);
+
+                let hitMessages = [];
+                let eliminatedTeams = [];
+
+                // Xử lý phá hủy hòm của TẤT CẢ các nhóm chôn tại ô này
+                cell.owners.forEach((ownerIndex, i) => {
+                    const ownerTeam = teams[ownerIndex];
+                    ownerTeam.chests--;
+                    
+                    if (ownerTeam.id !== currTeam.id) {
+                        hitOtherTeam = true;
+                    }
+
+                    // Thêm hiệu ứng chữ -1 bay lên - Phóng to chữ (text-5xl)
+                    const floatingText = document.createElement('div');
+                    floatingText.className = `absolute text-5xl font-black drop-shadow-lg z-30 ${ownerTeam.textClass}`;
+                    floatingText.innerText = "-1";
+                    floatingText.style.animation = `floatUp 1s ease-out forwards`;
+                    // Đẩy lệch vị trí một chút theo chiều ngang nếu có nhiều hòm bị bể để chữ không đè lên nhau
+                    floatingText.style.left = `${20 + (i * 20)}%`; 
+                    cellEl.appendChild(floatingText);
+
+                    if (ownerTeam.id === currTeam.id) {
+                        hitMessages.push(`Tự đào trúng kho báu của mình! (Còn ${ownerTeam.chests})`);
+                    } else {
+                        hitMessages.push(`Phá hòm của <b>${ownerTeam.name}</b>! (Còn ${ownerTeam.chests})`);
+                    }
+
+                    if (ownerTeam.chests <= 0 && ownerTeam.alive) {
+                        ownerTeam.alive = false;
+                        eliminatedTeams.push(ownerTeam);
+                    }
+                });
+
+                renderTeams(); // Cập nhật lại UI số lượng hòm
+
+                // Trì hoãn hiện Modal thông báo để người chơi xem hiệu ứng (0.8s)
+                setTimeout(() => {
+                    // Cấu hình thông báo tuỳ thuộc vào số lượng hòm bị đào trúng
+                    let alertTitle = cell.owners.length > 1 ? 'COMBO BÙNG NỔ! 🔥' : 'CÓ KHO BÁU!';
+                    let bgClass = cell.owners.length > 1 ? 'bg-purple-600' : 'bg-green-600';
+                    let iconClass = 'fa-gem';
+
+                    // Nếu chỉ có 1 hòm và đó là hòm của chính đội mình
+                    if (cell.owners.length === 1 && cell.owners[0] === currTeam.id) {
+                        alertTitle = 'Ôi không!';
+                        bgClass = 'bg-yellow-500';
+                        iconClass = 'fa-face-frown-open';
+                    }
+
+                    let messageHtml = hitMessages.join('<br/>');
+                    
+                    // Nếu có đội bị loại, thêm thông báo Loại
+                    if (eliminatedTeams.length > 0) {
+                        messageHtml += '<hr class="my-3 border-white/30">';
+                        messageHtml += `<span class="text-white text-xl font-black uppercase drop-shadow-md">LOẠI: ${eliminatedTeams.map(t => t.name).join(', ')}</span>`;
+                    }
+
+                    if (hitOtherTeam) {
+                        messageHtml += '<br><br><span class="text-green-300 text-lg md:text-xl font-black uppercase drop-shadow-md animate-pulse">🎁 THƯỞNG: ĐƯỢC ĐÀO TIẾP!</span>';
+                    }
+
+                    showAlert(
+                        alertTitle,
+                        messageHtml,
+                        bgClass,
+                        iconClass,
+                        afterDigCallback
+                    );
+                }, 800);
+            } else {
+                // Hiệu ứng đào đất trống (bụi mờ) - Phóng to đám mây bụi (text-7xl)
+                const dirt = document.createElement('div');
+                dirt.className = 'absolute inset-0 text-7xl flex items-center justify-center z-20';
+                dirt.innerText = '💨';
+                dirt.style.animation = 'floatUp 0.8s ease-out forwards';
+                cellEl.appendChild(dirt);
+
+                // Trì hoãn hiện Modal thông báo (0.6s)
+                setTimeout(() => {
+                    // Empty land
+                    showAlert(
+                        'Trống rỗng!',
+                        'Chỉ có đất sét và giun dế ở đây. Không có kho báu nào cả!',
+                        'bg-gray-600',
+                        'fa-frog',
+                        afterDigCallback
+                    );
+                }, 600);
+            }
+        }
+
+        // --- MÃ CHO CÁC THẺ ĐẶC BIỆT ---
+        function triggerSpecialCard(cardType, keepTurn = false) {
+            if (cardType === 'NOHU') {
+                window.pendingKeepTurn = keepTurn;
+                showAlert('THẺ ĐẶC BIỆT: NỔ HŨ! 🎁', 'Tuyệt vời! Nhóm bạn nhận được thêm 1 kho báu. Hãy chọn 1 ô CHƯA ĐÀO trên bản đồ để bí mật giấu nó đi.', 'bg-yellow-500', 'fa-sack-dollar', () => {
+                    gameState = 'BURY_EXTRA_CHEST';
+                    updateUIState();
+                });
+            } else if (cardType === 'RADAR') {
+                showAlert('THẺ ĐẶC BIỆT: RADAR 3x3! 📡', 'Bạn nhặt được thiết bị dò tìm! <br><br><b>Hãy thông báo cho MC 1 ô trung tâm bất kỳ.</b><br>MC sẽ kiểm tra và thông báo cho bạn biết số lượng kho báu đang ẩn giấu trong khu vực 3x3 xung quanh ô đó!', 'bg-blue-500', 'fa-satellite-dish', () => checkWinCondition(keepTurn));
+            } else if (cardType === 'MAYXUC') {
+                showAlert('THẺ ĐẶC BIỆT: MÁY XÚC! 🚜', 'Sức mạnh cày nát bản đồ! Bạn sẽ được chọn chế độ đào một loạt nhiều ô cùng lúc mà không cần trả lời câu hỏi.', 'bg-red-600', 'fa-tractor', () => {
+                    mayxucModal.classList.remove('hidden');
+                });
+            }
+        }
+
+        function selectMayXuc(mode) {
+            mayXucMode = mode;
+            mayxucModal.classList.add('hidden');
+            gameState = 'MAYXUC_TARGET_SELECT';
+            updateUIState();
+        }
+
+        function executeMultipleDigs(targetId) {
+            let pattern = [];
+            let col = targetId % 7;
+            let row = Math.floor(targetId / 7);
+
+            if (mayXucMode === 'CROSS') {
+                pattern.push(targetId);
+                if (col > 0) pattern.push(targetId - 1);
+                if (col < 6) pattern.push(targetId + 1);
+                if (row > 0) pattern.push(targetId - 7);
+                if (row < 6) pattern.push(targetId + 7);
+            } else if (mayXucMode === 'ROW') {
+                for(let c=0; c<7; c++) pattern.push(row * 7 + c);
+            } else if (mayXucMode === 'COL') {
+                for(let r=0; r<7; r++) pattern.push(r * 7 + col);
+            }
+
+            let hitMessages = [];
+            let eliminatedTeams = [];
+            const currTeam = teams[currentPlayTeamIndex];
+            let newlyDugCells = [];
+
+            let hitOtherTeam = false;
+
+            // Chỉ lấy những ô chưa bị đào để xử lý
+            pattern.forEach(cellId => {
+                if (!grid[cellId].dug) {
+                    grid[cellId].dug = true;
+                    newlyDugCells.push(cellId);
+                }
+            });
+
+            renderGrid(); // Cập nhật bản đồ ngay để gắn hiệu ứng
+
+            newlyDugCells.forEach(cellId => {
+                let cell = grid[cellId];
+                const cellEl = document.querySelector(`.cell[data-index="${cellId}"]`);
+                if (!cellEl) return;
+
+                if (cell.owners.length > 0) {
+                    if (cell.owners.length > 1) {
+                        mapContainer.classList.add('map-shake');
+                        setTimeout(() => mapContainer.classList.remove('map-shake'), 500);
+                    }
+                    const explosion = document.createElement('div');
+                    explosion.className = 'explosion-anim flex items-center justify-center text-7xl drop-shadow-2xl z-20';
+                    explosion.innerHTML = cell.owners.length > 1 ? '💥' : '✨';
+                    cellEl.appendChild(explosion);
+
+                    cell.owners.forEach((ownerIndex, i) => {
+                        const ownerTeam = teams[ownerIndex];
+                        ownerTeam.chests--;
+                        
+                        if (ownerTeam.id !== currTeam.id) {
+                            hitOtherTeam = true;
+                        }
+
+                        const floatingText = document.createElement('div');
+                        floatingText.className = `absolute text-5xl font-black drop-shadow-lg z-30 ${ownerTeam.textClass}`;
+                        floatingText.innerText = "-1";
+                        floatingText.style.animation = `floatUp 1s ease-out forwards`;
+                        floatingText.style.left = `${20 + (i * 20)}%`; 
+                        cellEl.appendChild(floatingText);
+
+                        if (ownerTeam.id === currTeam.id) {
+                            hitMessages.push(`Tự đào trúng mình! (Còn ${ownerTeam.chests})`);
+                        } else {
+                            hitMessages.push(`Phá hòm <b>${ownerTeam.name}</b>! (Còn ${ownerTeam.chests})`);
+                        }
+
+                        if (ownerTeam.chests <= 0 && ownerTeam.alive) {
+                            ownerTeam.alive = false;
+                            eliminatedTeams.push(ownerTeam);
+                        }
+                    });
+                } else {
+                    const dirt = document.createElement('div');
+                    dirt.className = 'absolute inset-0 text-7xl flex items-center justify-center z-20';
+                    dirt.innerText = '💨';
+                    dirt.style.animation = 'floatUp 0.8s ease-out forwards';
+                    cellEl.appendChild(dirt);
+                }
+            });
+
+            renderTeams(); // Cập nhật lại số rương sau khi máy xúc chạy
+
+            setTimeout(() => {
+                if (newlyDugCells.length === 0) {
+                    showAlert('MÁY XÚC HOẠT ĐỘNG', 'Tất cả các ô trong vùng chọn đều đã bị đào trước đó!', 'bg-gray-600', 'fa-tractor', () => checkWinCondition(false));
+                    return;
+                }
+
+                if (hitMessages.length > 0) {
+                    let alertTitle = 'MÁY XÚC THÀNH CÔNG! 🚜';
+                    let messageHtml = hitMessages.join('<br/>');
+                    if (eliminatedTeams.length > 0) {
+                        messageHtml += '<hr class="my-3 border-white/30">';
+                        messageHtml += `<span class="text-white text-xl font-black uppercase drop-shadow-md">LOẠI: ${eliminatedTeams.map(t => t.name).join(', ')}</span>`;
+                    }
+                    if (hitOtherTeam) {
+                        messageHtml += '<br><br><span class="text-green-300 text-lg md:text-xl font-black uppercase drop-shadow-md animate-pulse">🎁 THƯỞNG: ĐƯỢC ĐÀO TIẾP!</span>';
+                    }
+                    showAlert(alertTitle, messageHtml, 'bg-red-600', 'fa-tractor', () => checkWinCondition(hitOtherTeam));
+                } else {
+                    showAlert('TRỐNG RỖNG! 🚜', 'Máy xúc đã cày nát đất nhưng không tìm thấy kho báu nào!', 'bg-gray-600', 'fa-tractor', () => checkWinCondition(false));
+                }
+            }, 900);
+        }
+        // ------------------------------
+
+        function checkWinCondition(keepTurn = false) {
+            const aliveTeams = teams.filter(t => t.alive);
+            
+            // Trò chơi kết thúc khi chỉ còn 1 đội sống sót, bất kể chế độ Trả thù bật hay tắt
+            if (aliveTeams.length <= 1) {
+                // We have a winner
+                gameState = 'GAMEOVER';
+                updateUIState();
+            } else {
+                if (keepTurn) {
+                    // Nếu được thưởng lượt, giữ nguyên trạng thái đang chơi và cập nhật lại giao diện
+                    gameState = 'PLAYING';
+                    updateUIState();
+                } else {
+                    nextTurn();
+                }
+            }
+        }
+
+        function nextTurn() {
+            if (gameState === 'GAMEOVER') return;
+
+            do {
+                currentPlayTeamIndex = (currentPlayTeamIndex + 1) % teams.length;
+            } while (!teams[currentPlayTeamIndex].alive && !isRevengeMode); 
+            // Nếu là chế độ trả thù, không bỏ qua các nhóm đã chết
+
+            // Chuyển trạng thái về bình thường sau khi dùng xong các kỹ năng đặc biệt
+            gameState = 'PLAYING';
+            updateUIState();
+        }
+
+        function showAlert(title, message, bgClass = 'bg-gray-800', iconClass = 'fa-bell', onClose = null) {
+            alertHeader.className = `p-4 text-white text-2xl brand-font ${bgClass}`;
+            alertHeader.innerText = title;
+            alertMessage.innerHTML = message;
+            
+            alertIcon.innerHTML = `<i class="fa-solid ${iconClass} ${bgClass.replace('bg-', 'text-')} text-transparent bg-clip-text drop-shadow"></i>`;
+            
+            alertCloseBtn.className = `w-full ${bgClass} hover:opacity-90 text-white font-bold py-3 px-4 rounded-xl transition`;
+            
+            alertCloseBtn.onclick = () => {
+                alertModal.classList.add('hidden');
+                if (onClose) onClose();
+            };
+            
+            alertModal.classList.remove('hidden');
+        }
+
+        function autoDigEmptyCells() {
+            let newlyDugCells = [];
+            grid.forEach(cell => {
+                // Mở các ô chưa bị đào và KHÔNG có hòm kho báu nào
+                if (!cell.dug && cell.owners.length === 0) {
+                    cell.dug = true;
+                    cell.specialCard = null; // Vô hiệu hóa thẻ đặc biệt vì bị lật tự động
+                    newlyDugCells.push(cell.id);
+                }
+            });
+            
+            if (newlyDugCells.length > 0) {
+                renderGrid(); // Cập nhật lại bản đồ
+                
+                // Thêm hiệu ứng bụi mờ cho tất cả các ô vừa được lật
+                newlyDugCells.forEach(cellId => {
+                    const cellEl = document.querySelector(`.cell[data-index="${cellId}"]`);
+                    if (cellEl) {
+                        const dirt = document.createElement('div');
+                        dirt.className = 'absolute inset-0 text-3xl md:text-5xl flex items-center justify-center z-20';
+                        dirt.innerText = '💨';
+                        dirt.style.animation = 'floatUp 0.8s ease-out forwards';
+                        cellEl.appendChild(dirt);
+                    }
+                });
+
+                // Chờ hiệu ứng chạy xong rồi báo kết quả
+                setTimeout(() => {
+                    showAlert('Đã mở xong! ⏩', 'Toàn bộ các ô trống trên bản đồ đã được lật mở. Từ bây giờ, mọi ô đất còn lại đều đang giấu kho báu!', 'bg-green-600', 'fa-forward-fast');
+                }, 800);
+            } else {
+                showAlert('Không có ô trống', 'Tất cả các ô trống đều đã bị đào hết từ trước rồi!', 'bg-gray-600', 'fa-info');
+            }
+        }
+
+        // --- 6. CONFETTI EFFECT ---
+        let confettiParticles = [];
+        const canvas = document.getElementById('confetti-canvas');
+        const ctx = canvas.getContext('2d');
+        let confettiAnimationId;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function triggerConfetti() {
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            const colors = ['#fce18a', '#ff726d', '#b48def', '#f4306d'];
+            for (let i = 0; i < 150; i++) {
+                confettiParticles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height - canvas.height,
+                    r: Math.random() * 6 + 2,
+                    dx: Math.random() * 4 - 2,
+                    dy: Math.random() * 5 + 2,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    tilt: Math.floor(Math.random() * 10) - 10,
+                    tiltAngle: 0,
+                    tiltAngleInc: (Math.random() * 0.07) + 0.05
+                });
+            }
+            animateConfetti();
+        }
+
+        function animateConfetti() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            let active = false;
+            
+            confettiParticles.forEach(p => {
+                p.tiltAngle += p.tiltAngleInc;
+                p.y += (Math.cos(p.tiltAngle) + 1 + p.r / 2) / 2 + p.dy;
+                p.x += Math.sin(p.tiltAngle) * 2 + p.dx;
+
+                if (p.y <= canvas.height) active = true;
+
+                ctx.beginPath();
+                ctx.lineWidth = p.r;
+                ctx.strokeStyle = p.color;
+                ctx.moveTo(p.x + p.tilt + p.r, p.y);
+                ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r);
+                ctx.stroke();
+            });
+
+            if (active) {
+                confettiAnimationId = requestAnimationFrame(animateConfetti);
+            } else {
+                cancelAnimationFrame(confettiAnimationId);
+                confettiParticles = []; // clear
+            }
+        }
+
+        // --- 7. START ---
+        window.onload = initGame;
+    </script>
+</body>
+</html>
